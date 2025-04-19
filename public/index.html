@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>X-ray Fracture Detection</title>
+  <style>
+    :root {
+      --primary: #2A5C82;
+      --secondary: #E53E3E;
+    }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      margin: 0;
+      padding: 2rem;
+      background-color: #f0f4f8;
+      color: #333;
+    }
+
+    h1 {
+      text-align: center;
+      color: var(--primary);
+      margin-bottom: 2rem;
+    }
+
+    #upload-section {
+      text-align: center;
+      margin-bottom: 2rem;
+    }
+
+    .upload-btn {
+      padding: 12px 24px;
+      font-size: 16px;
+      background-color: var(--primary);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: transform 0.2s;
+    }
+
+    .upload-btn:hover {
+      transform: translateY(-2px);
+      background-color: #1E4261;
+    }
+
+    #fileInput {
+      display: none;
+    }
+
+    #preview-container {
+      position: relative;
+      margin: 2rem auto;
+      max-width: 800px;
+      border: 2px dashed #ccc;
+      border-radius: 8px;
+      min-height: 300px;
+      background: #f8fafc;
+    }
+
+    #xray {
+      max-width: 100%;
+      height: auto;
+      display: none;
+      border-radius: 6px;
+    }
+
+    .box {
+      position: absolute;
+      border: 3px solid var(--secondary);
+      border-radius: 4px;
+      pointer-events: none;
+      box-shadow: 0 2px 8px rgba(229, 62, 62, 0.3);
+    }
+
+    .label {
+      position: absolute;
+      background: var(--secondary);
+      color: white;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: bold;
+      pointer-events: none;
+    }
+
+    #report {
+      background: white;
+      padding: 1.5rem;
+      border-radius: 8px;
+      margin: 2rem auto;
+      max-width: 800px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+    }
+
+    .loading {
+      display: none;
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(255,255,255,0.9);
+      padding: 1rem 2rem;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+
+    .confidence-bar {
+      height: 8px;
+      background: #eee;
+      border-radius: 4px;
+      overflow: hidden;
+      margin: 8px 0;
+    }
+
+    .confidence-fill {
+      height: 100%;
+      background: var(--primary);
+      transition: width 0.5s ease;
+    }
+  </style>
+</head>
+<body>
+  <h1>🔍 X-ray Fracture Detection</h1>
+
+  <div id="upload-section">
+    <label for="fileInput" class="upload-btn">
+      📁 Upload X-ray Image
+    </label>
+    <input type="file" id="fileInput" accept="image/png, image/jpeg">
+    <button class="upload-btn" id="analyzeBtn">Analyze Now</button>
+    <div class="loading" id="loading">Analyzing... ⏳</div>
+  </div>
+
+  <div id="preview-container">
+    <img id="xray" alt="X-ray Preview">
+  </div>
+
+  <div id="report"></div>
+
+  <script>
+    const analyzeBtn = document.getElementById('analyzeBtn');
+    const fileInput = document.getElementById('fileInput');
+    const xrayImg = document.getElementById('xray');
+    const loading = document.getElementById('loading');
+    let selectedFile = null;
+
+    fileInput.addEventListener('change', handleFileSelect);
+    analyzeBtn.addEventListener('click', startAnalysis);
+
+    async function handleFileSelect(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      if (!file.type.match(/image\/(jpeg|png)/)) {
+        alert('❗ Only JPG/PNG images allowed!');
+        return;
+      }
+
+      if (file.size > 5 * 1024 * 1024) {
+        alert('⚠️ File size must be under 5MB!');
+        return;
+      }
+
+      selectedFile = file;
+      previewImage(file);
+    }
+
+    function previewImage(file) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        xrayImg.style.display = 'block';
+        xrayImg.src = e.target.result;
+      };
+      reader.readAsDataURL(file);
+    }
+
+    async function startAnalysis() {
+      if (!selectedFile) {
+        alert('📁 Please select an X-ray image first!');
+        return;
+      }
+
+      try {
+        showLoading(true);
+        clearPreviousResults();
+
+        const formData = new FormData();
+        formData.append('xray', selectedFile);
+
+        // Ensure image is fully loaded before proceeding
+        if (!xrayImg.complete) {
+          await new Promise(resolve => xrayImg.onload = resolve);
+        }
+
+        const response = await fetch('http://localhost:5000/analyze', {
+          method: 'POST',
+          body: formData
+        });
+
+        if (!response.ok) {
+          const error = await response.text();
+          throw new Error(`Server error: ${error}`);
+        }
+
+        const results = await response.json();
+        displayResults(results);
+
+      } catch (error) {
+        console.error('Error:', error);
+        alert(`❌ Analysis failed: ${error.message}`);
+      } finally {
+        showLoading(false);
+      }
+    }
+
+    function displayResults(data) {
+      document.querySelectorAll('.box, .label').forEach(el => el.remove());
+
+      data.predictions.forEach((pred, index) => {
+        const scaleX = xrayImg.offsetWidth / xrayImg.naturalWidth;
+        const scaleY = xrayImg.offsetHeight / xrayImg.naturalHeight;
+
+        const x = (pred.x - pred.width/2) * scaleX;
+        const y = (pred.y - pred.height/2) * scaleY;
+        const width = pred.width * scaleX;
+        const height = pred.height * scaleY;
+
+        createBox(x, y, width, height, pred.confidence, pred.class, index+1);
+      });
+
+      updateReport(data);
+    }
+
+    function createBox(x, y, w, h, confidence, className, index) {
+      const box = document.createElement('div');
+      box.className = 'box';
+      Object.assign(box.style, {
+        left: `${x}px`,
+        top: `${y}px`,
+        width: `${w}px`,
+        height: `${h}px`
+      });
+
+      const label = document.createElement('div');
+      label.className = 'label';
+      label.textContent = `${className} ${Math.round(confidence * 100)}%`;
+      label.style.left = `${x}px`;
+      label.style.top = `${y - 25}px`;
+
+      document.getElementById('preview-container').append(box, label);
+    }
+
+    function updateReport(data) {
+      const reportHTML = data.predictions.map((pred, index) => `
+        <div class="report-item">
+          <h3>Finding #${index + 1}</h3>
+          <p>Type: ${pred.class}</p>
+          <div class="confidence-bar">
+            <div class="confidence-fill" style="width: ${Math.round(pred.confidence * 100)}%"></div>
+          </div>
+          <p>Confidence: ${Math.round(pred.confidence * 100)}%</p>
+          <p>Location: X${Math.round(pred.x)}, Y${Math.round(pred.y)}</p>
+        </div>
+      `).join('');
+
+      document.getElementById('report').innerHTML = `
+        <h2>📝 Analysis Report</h2>
+        ${data.predictions.length ? reportHTML : '<p>✅ No fractures detected</p>'}
+      `;
+    }
+
+    function showLoading(show) {
+      loading.style.display = show ? 'block' : 'none';
+    }
+
+    function clearPreviousResults() {
+      document.querySelectorAll('.box, .label').forEach(el => el.remove());
+      document.getElementById('report').innerHTML = '';
+    }
+  </script>
+</body>
+</html>
