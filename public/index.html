@@ -31,6 +31,7 @@
 
     .upload-btn {
       padding: 12px 24px;
+      margin: 5px 10px;
       font-size: 16px;
       background-color: var(--primary);
       color: white;
@@ -43,6 +44,7 @@
     .upload-btn:hover {
       transform: translateY(-2px);
       background-color: #1E4261;
+
     }
 
     #fileInput {
@@ -118,6 +120,15 @@
       height: 100%;
       background: var(--primary);
       transition: width 0.5s ease;
+    }
+    @media (max-width: 876px ){
+      #upload-section {
+        margin: 10px 0;
+        display: flex;
+       justify-content: center;
+        align-items: center;
+       flex-direction: column;
+      }
     }
   </style>
 </head>
